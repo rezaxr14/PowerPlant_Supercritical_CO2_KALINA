@@ -1,0 +1,597 @@
+$UnitSystem SI C kPa kJ mass
+
+$VarInfo m_dot_comp_in Guess=355.7 Lower=100
+$VarInfo T_comp_in Guess=30 Lower=-50
+$VarInfo T_comp_out_is Guess=400 Lower=0
+$VarInfo T_comp_out Guess=450 Lower=0
+$VarInfo h_comp_out_is Guess=400 Lower=0
+
+"========================================================================"
+" SYSTEM 1: SOLAR-BIOMASS IGCC + HRSG + MOLTEN SALT + CHEMICAL BLOCKS     "
+"========================================================================"
+
+"--------------------------------------------------------------------------"
+" 0) DESIGN INPUTS / PAPER-BASED CONSTANTS"
+"--------------------------------------------------------------------------"
+
+T_amb        = 25 [C]
+P_amb        = 101.3 [kPa]
+P_comb       = 2027 [kPa]
+P_HP         = 10551 [kPa]
+P_IP         = 2027 [kPa]
+P_condenser  = 8 [kPa]
+
+RR           = 0.42
+
+"Main design-point basis"
+m_dot_comp_in  = 355.7 [kg/s]
+m_dot_bio      = 30.56 [kg/s]
+m_dot_HP_total = 75.89 [kg/s]
+m_dot_IP_total = 14.42 [kg/s]
+m_dot_LP_in    = m_dot_HP_total + m_dot_IP_total
+
+"Solar / molten salt"
+DNI            = 800 [W/m^2]
+eta_optical    = 0.65
+eta_rec_thermal = 0.88
+A_heliostats   = 585000 [m^2]
+T_salt_cold    = 290 [C]
+T_salt_hot     = 565 [C]
+Cp_salt        = 1.50 [kJ/kg-K]
+
+"Steam-side targets"
+T_HP_turb_in   = 500 [C]
+T_IP_turb_in   = 322 [C]
+T_fw_solar     = 214.9 [C]
+T_egr          = 40.6 [C]
+T_51_target    = 139.6 [C]
+
+"Fuel / gasification"
+OBWF           = 0.15
+SBWF           = 0.15
+LHV_bio        = 21500 [kJ/kg]
+LHV_syngas     = 10900 [kJ/kg]
+
+eta_comb       = 0.85
+eta_turb       = 0.90
+eta_comp       = 0.88
+
+"Steam cycle efficiencies"
+eta_st         = 0.88
+eta_pump       = 0.85
+
+"Air composition"
+mf_N2_air      = 0.7547
+mf_O2_air      = 0.2320
+mf_CO2_air     = 0.0004
+mf_H2O_air     = 0.0000
+mf_Ar_air      = 0.0129
+
+"Flue gas composition"
+mf_N2_flue     = 0.537918
+mf_CO2_flue    = 0.312694
+mf_H2O_flue    = 0.117736
+mf_Ar_flue     = 0.013257
+mf_O2_flue     = 0.012838
+mf_H2_flue     = 0.001906
+mf_CO_flue     = 0.001364
+mf_NOx_flue    = 0.002263
+
+"Chemical / product annual basis"
+m_dot_NaCl    = 0.035e6*1000/(365*24*3600) [kg/s]
+eta_capture   = 0.90
+SP_ASU        = 220 [kWh/tonne]
+SEC_CO2      = 110 [kWh/tonne]
+
+"--------------------------------------------------------------------------"
+" 1) OXY-GASIFIER / GT / MIXER"
+"--------------------------------------------------------------------------"
+
+m_dot_O2 = OBWF*m_dot_bio
+
+CGE = (0.746 - 0.18*(OBWF-0.15)^2)*(1 + 0.02*(SBWF-0.15))
+
+mf_H2_syngas  = 0.045
+mf_CO_syngas  = 0.411
+mf_CH4_syngas = 0.034
+mf_CO2_syngas = 0.510
+
+m_dot_syngas = (CGE*m_dot_bio*LHV_bio)/LHV_syngas
+
+T_syngas = 1000 [C]
+h_syngas = mf_H2_syngas*Enthalpy(H2,T=T_syngas) + mf_CO_syngas*Enthalpy(CO,T=T_syngas) + mf_CH4_syngas*Enthalpy(Methane,T=T_syngas) + mf_CO2_syngas*Enthalpy(CO2,T=T_syngas)
+
+"Gas recirculation / mixer"
+m_dot_comb_out = m_dot_comp_in + m_dot_syngas
+m_dot_egr      = RR*m_dot_comb_out
+m_dot_air_fresh = m_dot_comp_in - m_dot_egr
+
+h_air_amb = Enthalpy(Air,T=T_amb)
+h_egr     = Enthalpy(Air,T=T_egr)
+
+h_comp_in = (m_dot_air_fresh*h_air_amb + m_dot_egr*h_egr)/m_dot_comp_in
+T_comp_in = Temperature(Air,h=h_comp_in)
+
+"Compressor"
+P_comp_in = P_amb
+s_comp_in = Entropy(Air,T=T_comp_in,P=P_comp_in)
+T_comp_out_is = Temperature(Air,s=s_comp_in,P=P_comb)
+
+h_comp_in_air  = Enthalpy(Air,T=T_comp_in)
+h_comp_out_is  = Enthalpy(Air,T=T_comp_out_is)
+W_comp_spec    = (h_comp_out_is - h_comp_in_air)/eta_comp
+h_comp_out     = h_comp_in_air + W_comp_spec
+T_comp_out     = Temperature(Air,h=h_comp_out)
+W_comp_total   = m_dot_comp_in*W_comp_spec
+
+"Combustor (TIT clamp / design input)"
+T_44 = 1404 [C]
+h_44 = Enthalpy(Air,T=T_44)
+
+Q_comb_in  = m_dot_comp_in*h_comp_out + m_dot_syngas*(h_syngas + eta_comb*LHV_syngas)
+Q_comb_out = m_dot_comb_out*h_44
+
+"Gas turbine"
+s_turb_in    = Entropy(Air,T=T_44,P=P_comb)
+T_45_is      = Temperature(Air,s=s_turb_in,P=P_amb)
+h_45_is      = Enthalpy(Air,T=T_45_is)
+W_turb_spec  = (h_44 - h_45_is)*eta_turb
+h_45         = h_44 - W_turb_spec
+T_45         = Temperature(Air,h=h_45)
+W_turb_total = m_dot_comb_out*W_turb_spec
+
+W_GT_Net = W_turb_total - W_comp_total
+
+"--------------------------------------------------------------------------"
+" 2) REAL GAS MIXTURE PROPERTIES FOR VALIDATION"
+"--------------------------------------------------------------------------"
+
+P_comp_in = P_amb
+
+hN2_ref  = Enthalpy(Nitrogen,T=T_amb)
+hO2_ref  = Enthalpy(Oxygen,T=T_amb)
+hCO2_ref = Enthalpy(CarbonDioxide,T=T_amb)
+hH2O_ref = Enthalpy(Steam,T=T_amb,P=P_amb)
+hAr_ref  = Enthalpy(Argon,T=T_amb,P=P_amb)
+hCO_ref  = Enthalpy(CO,T=T_amb)
+
+h_comp_in_real = mf_N2_flue*Enthalpy(Nitrogen,T=T_comp_in) + mf_O2_flue*Enthalpy(Oxygen,T=T_comp_in) + mf_CO2_flue*Enthalpy(CarbonDioxide,T=T_comp_in) + mf_H2O_flue*Enthalpy(Steam,T=T_comp_in,P=P_amb) + mf_Ar_flue*Enthalpy(Argon,T=T_comp_in,P=P_amb)
+
+h_45_real = mf_N2_flue*(Enthalpy(Nitrogen,T=T_45)-hN2_ref) + mf_O2_flue*(Enthalpy(Oxygen,T=T_45)-hO2_ref) + mf_CO2_flue*(Enthalpy(CarbonDioxide,T=T_45)-hCO2_ref) + mf_H2O_flue*(Enthalpy(Steam,T=T_45,P=P_amb)-hH2O_ref) + mf_Ar_flue*(Enthalpy(Argon,T=T_45,P=P_amb)-hAr_ref) + mf_H2_flue*Enthalpy(H2,T=T_45) + mf_CO_flue*(Enthalpy(CO,T=T_45)-hCO_ref)
+
+Cp_gas_duct = mf_N2_flue*Cp(Nitrogen,T=500,P=P_amb) + mf_O2_flue*Cp(Oxygen,T=500,P=P_amb) + mf_CO2_flue*Cp(CarbonDioxide,T=500,P=P_amb) + mf_H2O_flue*Cp(Steam,T=500,P=P_amb) + mf_Ar_flue*Cp(Argon,T=500,P=P_amb)
+
+"--------------------------------------------------------------------------"
+" 3) SOLAR FIELD / MOLTEN SALT / SOLAR DUTIES"
+"--------------------------------------------------------------------------"
+
+Q_solar_receiver  = DNI*A_heliostats*eta_optical/1000
+Q_solar_available = Q_solar_receiver*eta_rec_thermal
+
+Storage_hours   = 8 [hr]
+SOC             = 1.0
+Solar_Mode      = 1
+
+E_TES_max       = Q_solar_available*Storage_hours*3600
+Q_TES_available  = SOC*E_TES_max/3600
+Q_solar_effective = Solar_Mode*Q_solar_available + (1-Solar_Mode)*Q_TES_available
+
+m_dot_salt = Q_solar_available/(Cp_salt*(T_salt_hot - T_salt_cold))
+
+h_cond_out = Enthalpy(Steam,P=P_condenser,x=0)
+v_cond_out = Volume(Steam,P=P_condenser,x=0)
+W_spec_pump1 = v_cond_out*(P_IP - P_condenser)/eta_pump
+h_pump1_out = h_cond_out + W_spec_pump1
+W_Pump1_total = m_dot_LP_in*W_spec_pump1
+
+v_IP_liq = Volume(Steam,P=P_IP,x=0)
+W_spec_pump2 = v_IP_liq*(P_HP - P_IP)/eta_pump
+h_pump2_out = h_pump1_out + W_spec_pump2
+W_Pump2_total = m_dot_HP_total*W_spec_pump2
+
+h_PH1_out = Enthalpy(Steam,T=T_fw_solar,P=P_HP)
+Q_PH1 = m_dot_HP_total*(h_PH1_out - h_cond_out)
+
+h_HP_sat_liq = Enthalpy(Steam,P=P_HP,x=0)
+h_HP_sat_vap = Enthalpy(Steam,P=P_HP,x=1)
+
+h_RH_out = Enthalpy(Steam,T=T_IP_turb_in,P=P_IP)
+h_HP_out = Enthalpy(Steam,T=T_HP_turb_in,P=P_HP)
+
+Q_RH = m_dot_HP_total*(h_RH_out - h_HP_out)
+Q_SG1 = Q_solar_available - Q_PH1 - Q_RH
+
+"--------------------------------------------------------------------------"
+" 4) HRSG HEAT-RECOVERY BLOCK"
+"--------------------------------------------------------------------------"
+
+Q_PH2 = m_dot_HP_total*(h_HP_sat_liq - h_PH1_out)
+Q_SG2 = m_dot_HP_total*(h_HP_sat_vap - h_HP_sat_liq)
+Q_SH1 = m_dot_HP_total*(h_HP_out - h_HP_sat_vap)
+
+h_IP_sat_liq = Enthalpy(Steam,P=P_IP,x=0)
+h_IP_sat_vap = Enthalpy(Steam,P=P_IP,x=1)
+
+Q_PH3 = m_dot_IP_total*(h_IP_sat_liq - h_pump1_out)
+Q_SG3 = m_dot_IP_total*(h_IP_sat_vap - h_IP_sat_liq)
+Q_SH2 = m_dot_IP_total*(h_RH_out - h_IP_sat_vap)
+
+Q_HRSG_total = Q_PH2 + Q_SG2 + Q_SH1 + Q_PH3 + Q_SG3 + Q_SH2
+
+C_gas = m_dot_comb_out*Cp_gas_duct
+
+h_45_gas = h_45_real
+h_46_gas = h_45_gas - Q_SH1/m_dot_comb_out
+h_47_gas = h_46_gas - Q_SG2/m_dot_comb_out
+h_48_gas = h_47_gas - Q_SH2/m_dot_comb_out
+h_49_gas = h_48_gas - Q_SG3/m_dot_comb_out
+h_50_gas = h_49_gas - (Q_PH2 + Q_PH3)/m_dot_comb_out
+
+T_46 = Temperature(Air,h=h_46_gas)
+T_47 = Temperature(Air,h=h_47_gas)
+T_48 = Temperature(Air,h=h_48_gas)
+T_49 = Temperature(Air,h=h_49_gas)
+T_50 = Temperature(Air,h=h_50_gas)
+T_51 = T_51_target
+
+Q_stack = C_gas*(T_50 - T_51_target)
+h_51_gas = h_50_gas - Q_stack/m_dot_comb_out
+
+"--------------------------------------------------------------------------"
+" 5) RANKINE CYCLE (MAIN POWER STREAM)"
+"--------------------------------------------------------------------------"
+
+s_HP_in = Entropy(Steam,T=T_HP_turb_in,P=P_HP)
+h_HP_in = Enthalpy(Steam,T=T_HP_turb_in,P=P_HP)
+
+s_HP_out_is = s_HP_in
+h_HP_out_is = Enthalpy(Steam,P=P_IP,s=s_HP_out_is)
+W_spec_HPT = (h_HP_in - h_HP_out_is)*eta_st
+h_HP_out = h_HP_in - W_spec_HPT
+T_HP_out = Temperature(Steam,h=h_HP_out,P=P_IP)
+
+h_SH2_out = Enthalpy(Steam,T=T_IP_turb_in,P=P_IP)
+h_IP_mixed = (m_dot_HP_total*h_RH_out + m_dot_IP_total*h_SH2_out)/m_dot_LP_in
+s_IP_mixed = Entropy(Steam,h=h_IP_mixed,P=P_IP)
+
+h_LP_out_is = Enthalpy(Steam,P=P_condenser,s=s_IP_mixed)
+W_spec_LPT = (h_IP_mixed - h_LP_out_is)*eta_st
+h_LP_out = h_IP_mixed - W_spec_LPT
+x_LP_out = Quality(Steam,h=h_LP_out,P=P_condenser)
+
+W_HPT_total = m_dot_HP_total*W_spec_HPT
+W_LPT_total = m_dot_LP_in*W_spec_LPT
+W_ST_Gross = W_HPT_total + W_LPT_total
+
+Q_rejected_condenser = m_dot_LP_in*(h_LP_out - h_cond_out)
+
+W_Net_Rankine = W_ST_Gross - W_Pump1_total - W_Pump2_total
+
+"--------------------------------------------------------------------------"
+" 6) OVERALL POWER AND ENERGY INPUTS"
+"--------------------------------------------------------------------------"
+
+W_pumps_ms = 0 [kW]
+
+W_Overall_Net_kW = W_GT_Net + W_Net_Rankine - W_pumps_ms
+W_Net_MW = W_Overall_Net_kW/1000
+
+Q_bio_in = m_dot_bio*LHV_bio
+Q_Total_In = Q_bio_in + Q_solar_available
+
+Eta_Overall = W_Overall_Net_kW/Q_Total_In
+
+Err_Solar = 100*(Q_solar_available - (Q_PH1 + Q_SG1 + Q_RH))/Q_solar_available
+Err_HRSG  = 100*(Q_HRSG_total - (Q_SH1 + Q_SG2 + Q_SH2 + Q_SG3 + Q_PH2 + Q_PH3))/Q_HRSG_total
+
+"--------------------------------------------------------------------------"
+" 7) AIR SEPARATION UNIT"
+"--------------------------------------------------------------------------"
+
+m68 = m_dot_O2
+ASU_recovery = 0.95
+m64 = m68/(mf_O2_air*ASU_recovery)
+m_N2_ASU = m64*mf_N2_air
+m_Ar_ASU = m64*mf_Ar_air
+m65 = m_N2_ASU + m_Ar_ASU + m64*mf_O2_air*(1-ASU_recovery)
+
+P_64 = P_amb
+T_64 = T_amb
+P_68 = P_comb
+T_68 = 25 [C]
+
+W_ASU_kW = SP_ASU*(m68*3600/1000)
+
+"--------------------------------------------------------------------------"
+" 8) CO2 CAPTURE / COMPRESSION"
+"--------------------------------------------------------------------------"
+
+m_dot_CO2 = mf_CO2_flue*m_dot_comb_out
+m_dot_CO2_captured = eta_capture*m_dot_CO2
+m_dot_CO2_stack = (1-eta_capture)*m_dot_CO2
+
+m76 = m_dot_CO2_stack
+m77 = m_dot_CO2_captured
+m79 = m76 + m77
+
+P_CO2_in = 101.325 [kPa]
+P_CO2_out = 11000 [kPa]
+T_CO2_in = 25 [C]
+k_CO2 = 1.30
+Cp_CO2 = 0.846 [kJ/kg-K]
+eta_CO2_comp = 0.85
+
+T_CO2_in_K = ConvertTemp(C,K,T_CO2_in)
+T_CO2_out_K = T_CO2_in_K*(P_CO2_out/P_CO2_in)^((k_CO2-1)/k_CO2)
+w_CO2_is = Cp_CO2*(T_CO2_out_K - T_CO2_in_K)
+w_CO2 = w_CO2_is/eta_CO2_comp
+
+W_CO2_comp = m_dot_CO2_captured*SEC_CO2*3.6
+
+"--------------------------------------------------------------------------"
+" 9) MED DESALINATION"
+"--------------------------------------------------------------------------"
+
+Q_MED = 38000 [kJ/s]
+h_fg_water = 2300 [kJ/kg]
+m_dot_distillate = Q_MED/1100
+m_dot_seawater = 15.4*m_dot_distillate
+m_dot_brine = m_dot_seawater - m_dot_distillate
+
+GOR = m_dot_distillate*h_fg_water/Q_MED
+PR = m_dot_distillate/m_dot_seawater
+
+m54 = m_dot_seawater
+m55 = m_dot_distillate
+m56 = m_dot_brine
+
+"--------------------------------------------------------------------------"
+" 10) CHLOR-ALKALI"
+"--------------------------------------------------------------------------"
+
+MW_NaCl = 58.44
+MW_H2   = 2
+MW_Cl2  = 70.9
+MW_NaOH = 40
+
+m57 = m_dot_NaCl
+n_NaCl = m57/MW_NaCl
+
+m58 = 0.5*n_NaCl*MW_H2
+m59 = 0.5*n_NaCl*MW_Cl2
+m60 = n_NaCl*MW_NaOH
+
+Faradaic_eff = 0.9
+V_cell_CA = 4.0
+F_const = 96500
+
+n_H2_CA = m58/MW_H2
+W_ChlorAlkali = (n_H2_CA*2*F_const*V_cell_CA)/Faradaic_eff/1000
+
+"--------------------------------------------------------------------------"
+" 11) ALKALINE ELECTROLYZER"
+"--------------------------------------------------------------------------"
+
+RF = 5
+
+m61 = m58
+m62 = RF*m61
+m63 = m60 - m62
+
+Faradaic_eff_AE = 0.9
+E_rev = 1.23
+
+n_H2_AE = m61/MW_H2
+W_AE = (n_H2_AE*2*96500*E_rev/Faradaic_eff_AE)/1000
+
+W_Electrochemical = W_ChlorAlkali + W_AE
+
+"--------------------------------------------------------------------------"
+" 12) AMMONIA"
+"--------------------------------------------------------------------------"
+
+X_NH3 = 0.60
+SCW = 1500 [kJ/kg]
+
+m66 = m65
+m67 = m58
+
+m71 = 5.667*m67*X_NH3
+W_NH3_comp = SCW*m71
+
+m_N2_consumed = (28/34)*m71
+m_H2_consumed = (6/34)*m71
+
+m66_out = m66 - m_N2_consumed
+m67_out = m67 - m_H2_consumed
+
+NH3_tpy = m71*3600*24*365/1000
+
+"--------------------------------------------------------------------------"
+" 13) UREA"
+"--------------------------------------------------------------------------"
+
+X_urea = 0.62
+MW_NH3  = 17
+MW_CO2  = 44
+MW_UREA = 60
+MW_H2O  = 18
+
+n_NH3 = m71/MW_NH3
+n_CO2 = m77/MW_CO2
+
+n_urea_max_NH3 = n_NH3/2
+n_urea_max_CO2 = n_CO2
+n_urea = X_urea*n_urea_max_NH3
+
+m78 = n_urea*MW_UREA
+m_H2O_urea = n_urea*MW_H2O
+
+m_NH3_used = 2*n_urea*MW_NH3
+m_CO2_used = n_urea*MW_CO2
+
+m72 = m71
+m73 = m77
+m72_out = m72 - m_NH3_used
+m77_out = m77 - m_CO2_used
+
+Urea_tpy = m78*3600*24*365/1000
+
+"--------------------------------------------------------------------------"
+" 14) TOTAL PLANT NET POWER / FINAL EFFICIENCY"
+"--------------------------------------------------------------------------"
+
+W_Net_Final = W_Overall_Net_kW - W_CO2_comp - W_Electrochemical - W_NH3_comp
+W_Net_MW = W_Net_Final/1000
+
+Eta_Final = W_Net_Final/Q_Total_In
+
+"--------------------------------------------------------------------------"
+" 15) STATE TABLE / STREAMS"
+"--------------------------------------------------------------------------"
+
+"Air / gas side"
+m_41 = m_dot_air_fresh
+T_41_tab = T_amb
+P_41 = P_amb
+h_41 = h_air_amb
+
+m_42 = m_dot_comp_in
+T_42_tab = T_comp_out
+P_42 = P_comb
+h_42 = h_comp_out
+
+m_43 = m_dot_syngas
+T_43_tab = T_syngas
+P_43 = P_comb
+h_43 = h_syngas
+
+m_44 = m_dot_comb_out
+T_44_tab = T_44
+P_44 = P_comb
+h_44_tab = h_44
+
+m_45 = m_dot_comb_out
+T_45_tab = T_45
+P_45 = 110 [kPa]
+h_45_tab = h_45_real
+
+m_46 = m_dot_comb_out
+T_46_tab = T_46
+
+m_47 = m_dot_comb_out
+T_47_tab = T_47
+
+m_48 = m_dot_comb_out
+T_48_tab = T_48
+
+m_49 = m_dot_comb_out
+T_49_tab = T_49
+
+m_50 = m_dot_comb_out
+T_50_tab = T_50
+
+m_51 = m_dot_comb_out
+T_51_tab = T_51
+
+m_52 = m_dot_egr
+T_52_tab = T_egr
+
+m_53 = m_dot_comb_out - m_dot_egr
+T_53_tab = T_51
+
+"Steam side"
+m_16 = m_dot_HP_total
+T_16_tab = T_HP_turb_in
+P_16 = P_HP
+h_16 = h_HP_in
+
+m_17 = m_dot_HP_total
+T_17_tab = T_HP_out
+P_17 = P_IP
+h_17 = h_HP_out
+
+m_24 = m_dot_IP_total
+T_24_tab = T_IP_turb_in
+P_24 = P_IP
+h_24 = h_SH2_out
+
+m_29 = m_dot_LP_in
+T_29_tab = T_IP_turb_in
+P_29 = P_IP
+h_29 = h_IP_mixed
+
+m_36 = m_dot_LP_in
+T_36_tab = T_amb
+P_36 = P_condenser
+h_36 = h_cond_out
+
+"Process streams"
+m_54 = m_dot_seawater
+m_55 = m_dot_distillate
+m_56 = m_dot_brine
+m_57 = m_dot_NaCl
+m_58 = m58
+m_59 = m59
+m_60 = m60
+m_61 = m61
+m_62 = m62
+m_63 = m63
+m_64 = m64
+m_65 = m65
+m_66 = m66
+m_67 = m67
+m_68 = m68
+m_69 = m_dot_bio
+m_70 = m_dot_syngas
+m_71 = m71
+m_72 = m72
+m_73 = m73
+m_76 = m76
+m_77 = m77
+m_78 = m78
+m_79 = m79
+
+"--------------------------------------------------------------------------"
+" 16) VALIDATION METRICS"
+"--------------------------------------------------------------------------"
+
+Q_SH1_actual = m_dot_comb_out*(h_45 - h_46_gas)
+Q_SG2_actual = m_dot_comb_out*(h_46_gas - h_47_gas)
+Q_SH2_actual = m_dot_comb_out*(h_47_gas - h_48_gas)
+Q_SG3_actual = m_dot_comb_out*(h_48_gas - h_49_gas)
+Q_PH23_actual = m_dot_comb_out*(h_49_gas - h_50_gas)
+
+Q_SH1_paper  = 31.40E3 [kW]
+Q_SG2_paper  = 30.99E3 [kW]
+Q_SH2_paper  = 13.25E3 [kW]
+Q_SG3_paper  = 16.73E3 [kW]
+Q_PH23_paper = 91.10E3 [kW]
+
+Err_SH1 = 100*(Q_SH1_actual - Q_SH1_paper)/Q_SH1_paper
+Err_SG2 = 100*(Q_SG2_actual - Q_SG2_paper)/Q_SG2_paper
+Err_SH2 = 100*(Q_SH2_actual - Q_SH2_paper)/Q_SH2_paper
+Err_SG3 = 100*(Q_SG3_actual - Q_SG3_paper)/Q_SG3_paper
+Err_PH23 = 100*(Q_PH23_actual - Q_PH23_paper)/Q_PH23_paper
+
+Err_T45 = 100*(T_45 - 713.7)/713.7
+Err_T46 = 100*(T_46 - 639.2)/639.2
+Err_T47 = 100*(T_47 - 565.0)/565.0
+Err_T48 = 100*(T_48 - 533.0)/533.0
+Err_T49 = 100*(T_49 - 492.1)/492.1
+Err_T50 = 100*(T_50 - 263.1)/263.1
+Err_T51 = 100*(T_51 - 139.6)/139.6
+
+Err_m41 = 100*(m_41 - 198.6)/198.6
+Err_m52 = 100*(m_52 - 157.1)/157.1
+Err_m43 = 100*(m_43 - 48.65)/48.65
+
+Err_Power = 100*(W_Net_MW - 327.8)/327.8
+Err_Eta   = 100*(Eta_Overall - 0.485)/0.485
+
+Err_H2    = 100*((m58*3600*24*365/1000) - 1000)/1000
+Err_NH3   = 100*(NH3_tpy - 11000)/11000
+Err_Urea  = 100*(Urea_tpy - 2000)/2000
+Err_Cl2   = 100*((m59*3600*24*365/1000) - 26000)/26000
+Err_NaOH  = 100*((m60*3600*24*365/1000) - 120000)/120000
+Err_Water = 100*((m55*3600*24*365/1000) - 900000)/900000
